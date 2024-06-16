@@ -1,0 +1,140 @@
+#define RX_PIN 19  // RO (Receive Output)
+#define TX_PIN 18  // DI (Data Input)
+
+// Define RS485 control pins
+#define RE_PIN 4  // RE (Receive Enable)
+#define DE_PIN 4  // DE (Data Enable)
+
+HardwareSerial serial2(2); // Use UART2 for RS-485 communication
+
+// Function Prototypes
+void readSensorData();
+uint16_t calculateCRC(uint8_t *data, uint8_t length);
+void sendCommand(uint8_t *buffer, uint8_t length);
+uint8_t receiveResponse(uint8_t *response, uint8_t length);
+void printSensorData(uint8_t *response);
+
+void setup() {
+  Serial.begin(9600);
+  serial2.begin(4800, SERIAL_8N1, RX_PIN, TX_PIN); // Set the baud rate to 4800 (default)
+
+  pinMode(RE_PIN, OUTPUT);
+  pinMode(DE_PIN, OUTPUT);
+
+  // Set RS485 control pins to receive mode
+  digitalWrite(RE_PIN, HIGH);
+  digitalWrite(DE_PIN, LOW);
+}
+
+void loop() {
+  readSensorData();
+  delay(5000);  // Delay for 5 seconds before reading again
+}
+
+void readSensorData() {
+  uint8_t buffer[8];
+  uint8_t response[20];
+
+  // Prepare read command
+  buffer[0] = 0x01;  // Slave address
+  buffer[1] = 0x03;  // Function code (read holding registers)
+  buffer[2] = 0x00;  // Starting address high byte
+  buffer[3] = 0x00;  // Starting address low byte
+  buffer[4] = 0x00;  // Number of registers high byte
+  buffer[5] = 0x07;  // Number of registers low byte (7 registers)
+  uint16_t crc = calculateCRC(buffer, 6);
+  buffer[6] = crc & 0xFF;
+  buffer[7] = crc >> 8;
+
+  sendCommand(buffer, 8);
+
+  if (receiveResponse(response, sizeof(response))) {
+    if (response[0] == 0x01 && response[1] == 0x03) {
+      printSensorData(response);
+    } else {
+      Serial.println("Error: Invalid response received");
+    }
+  } else {
+    Serial.println("Error: No response received");
+  }
+}
+
+void sendCommand(uint8_t *buffer, uint8_t length) {
+  // Switch to transmit mode
+  digitalWrite(RE_PIN, LOW);
+  digitalWrite(DE_PIN, HIGH);
+  serial2.write(buffer, length);  // Send the command
+  serial2.flush(); // Wait for the transmission to complete
+
+  // Switch to receive mode
+  digitalWrite(RE_PIN, HIGH);
+  digitalWrite(DE_PIN, LOW);
+}
+
+uint8_t receiveResponse(uint8_t *response, uint8_t length) {
+  uint8_t bytesAvailable = 0;
+  uint32_t startTime = millis();
+  while ((bytesAvailable == 0) && (millis() - startTime < 500)) {
+    bytesAvailable = serial2.available();
+  }
+
+  if (bytesAvailable > 0) {
+    return serial2.readBytes(response, length);
+  }
+
+  return 0;
+}
+
+void printSensorData(uint8_t *response) {
+  uint16_t humidity = (response[3] << 8) | response[4];
+  int16_t temperature = (response[5] << 8) | response[6];
+  uint16_t conductivity = (response[7] << 8) | response[8];
+  uint16_t ph = (response[9] << 8) | response[10];
+  uint16_t nitrogen = (response[11] << 8) | response[12];
+  uint16_t phosphorus = (response[13] << 8) | response[14];
+  uint16_t potassium = (response[15] << 8) | response[16];
+
+  Serial.print("Humidity: ");
+  Serial.print(humidity * 0.1);
+  Serial.println("%");
+
+  Serial.print("Temperature: ");
+  Serial.print(temperature * 0.1);
+  Serial.println("°C");
+
+  Serial.print("Conductivity: ");
+  Serial.print(conductivity);
+  Serial.println(" us/cm");
+
+  Serial.print("pH: ");
+  Serial.print(ph * 0.1);
+  Serial.println();
+
+  Serial.print("Nitrogen: ");
+  Serial.print(nitrogen);
+  Serial.println(" mg/kg");
+
+  Serial.print("Phosphorus: ");
+  Serial.print(phosphorus);
+  Serial.println(" mg/kg");
+
+  Serial.print("Potassium: ");
+  Serial.print(potassium);
+  Serial.println(" mg/kg");
+}
+
+uint16_t calculateCRC(uint8_t *data, uint8_t length) {
+  uint16_t crc = 0xFFFF;
+  for (uint8_t i = 0; i < length; i++) {
+    crc ^= data[i];
+    for (uint8_t j = 0; j < 8; j++) {
+      if ((crc & 0x0001) != 0) {
+        crc >>= 1;
+        crc ^= 0xA001;
+      } else {
+        crc >>= 1;
+      }
+    }
+  }
+  return crc;
+}
