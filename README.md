@@ -15,3 +15,5 @@ CODING
 Open Arduibo IDE
 Paste and upload the code
 Enjoy
+
+When reading the monitor, set baud to 9600
